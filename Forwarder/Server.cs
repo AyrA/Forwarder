@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading;
 
@@ -130,15 +131,28 @@ namespace Forwarder
             }
         }
 
-        private bool IsValidAddress(string IP)
+        public static bool IsValidAddress(string IP)
         {
             IPAddress A = IPAddress.Any;
             return IPAddress.TryParse(IP, out A);
         }
 
-        private bool IsValidPort(int Port)
+        public static bool IsValidPort(int Port)
         {
-            return Port >= ushort.MinValue && Port <= ushort.MaxValue;
+            return Port >= IPEndPoint.MinPort && Port <= IPEndPoint.MaxPort;
+        }
+
+        public static IPAddress[] GetLocalAddresses()
+        {
+            List<IPAddress> Addresses = new List<IPAddress>();
+            foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                foreach (UnicastIPAddressInformation ip in ni.GetIPProperties().UnicastAddresses)
+                {
+                    Addresses.Add(ip.Address);
+                }
+            }
+            return Addresses.ToArray();
         }
     }
 }

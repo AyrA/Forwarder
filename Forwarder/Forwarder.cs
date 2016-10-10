@@ -35,7 +35,6 @@ namespace Forwarder
     public class Forwarder : IDisposable
     {
         private const int BUFFER = 1024 * 1024;
-        private const int TIMEOUT = 30 * 1000;
 
         private class Connection : IDisposable
         {
@@ -91,6 +90,11 @@ namespace Forwarder
 
         public void Start()
         {
+            Start(0);
+        }
+
+        public void Start(int Timeout)
+        {
             if (Destination == null)
             {
                 Destination = new Connection();
@@ -119,8 +123,8 @@ namespace Forwarder
                     }
                     if (Destination != null)
                     {
-                        Source.NS.ReadTimeout = TIMEOUT;
-                        Destination.NS.ReadTimeout = TIMEOUT;
+                        Source.NS.ReadTimeout = Timeout;
+                        Destination.NS.ReadTimeout = Timeout;
                         Source.Handle = Source.NS.BeginRead(Source.Data, 0, BUFFER, DataIn, Source);
                         Destination.Handle = Destination.NS.BeginRead(Destination.Data, 0, BUFFER, DataIn, Destination);
                     }
@@ -187,6 +191,7 @@ namespace Forwarder
             {
                 From.BytesReceived += (ulong)Readed;
                 DataTransmitted?.Invoke(this, Readed);
+                /*Only enable if the connections behave weirdly. Causes massive performance issues.
 #if DEBUG
                 lock ("console")
                 {
@@ -195,6 +200,7 @@ namespace Forwarder
                     Console.ResetColor();
                 }
 #endif
+                //*/
                 try
                 {
                     To.NS.Write(From.Data, 0, Readed);
@@ -211,6 +217,14 @@ namespace Forwarder
             }
         }
 
+        /// <summary>
+        /// Writes the first line of string data to the console.
+        /// Truncates it, if it exceeds the console size.
+        /// Replaces some chars with '.'
+        /// </summary>
+        /// <param name="Data">Byte data</param>
+        /// <param name="Count">Number of bytes to process</param>
+        /// <returns>ASCII String</returns>
         private string b2s(byte[] Data, int Count)
         {
             int MAXCOUNT = Console.BufferWidth - 1;
