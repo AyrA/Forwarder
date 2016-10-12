@@ -204,7 +204,7 @@ timeout      - How long a connection can sit inactive until it is closed.
                     }
                 }
             }
-            Result.Valid = (Result.Listener != null && Result.Destination != null);
+            Result.Valid = (Result.Listener != null && Result.Destination != null && Result.Timeout >= 0);
             return Result;
         }
 

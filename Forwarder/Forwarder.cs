@@ -97,6 +97,10 @@ namespace Forwarder
         {
             if (Destination == null)
             {
+                if (Timeout < 0)
+                {
+                    throw new ArgumentOutOfRangeException("Timeout must be 0 or bigger");
+                }
                 Destination = new Connection();
                 Destination.Other = Source;
                 Source.Other = Destination;
@@ -123,8 +127,11 @@ namespace Forwarder
                     }
                     if (Destination != null)
                     {
-                        Source.NS.ReadTimeout = Timeout;
-                        Destination.NS.ReadTimeout = Timeout;
+                        if (Timeout > 0)
+                        {
+                            Source.NS.ReadTimeout = Timeout;
+                            Destination.NS.ReadTimeout = Timeout;
+                        }
                         Source.Handle = Source.NS.BeginRead(Source.Data, 0, BUFFER, DataIn, Source);
                         Destination.Handle = Destination.NS.BeginRead(Destination.Data, 0, BUFFER, DataIn, Destination);
                     }
