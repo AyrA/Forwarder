@@ -10,6 +10,7 @@ namespace Forwarder
     static class Program
     {
         public const int INFITITE = 0;
+
         private struct Arguments
         {
             public IPEndPoint Listener;
@@ -30,7 +31,7 @@ namespace Forwarder
             Args = new string[]
             {
                 "127.0.0.1:8080",
-                "46.140.111.85:80",
+                "127.0.0.1:5000",
                 "5000"
             };
 #endif
@@ -63,6 +64,9 @@ timeout      - How long a connection can sit inactive until it is closed.
             {
                 Console.Error.WriteLine("Got connection");
                 Forwarder F = new Forwarder(Connection, A.Destination);
+#if DEBUG
+                F.Dump = true;
+#endif
                 Connections.Add(F);
 
                 F.DataTransmitted += delegate (object source, int Count)

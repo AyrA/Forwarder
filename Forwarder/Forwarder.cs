@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -34,6 +36,11 @@ namespace Forwarder
     public delegate void DataTransmitHandler(object sender, int Amount);
     public class Forwarder : IDisposable
     {
+        public bool Dump
+        { get; set; } = false;
+
+        private FileStream FS = null;
+
         private const int BUFFER = 1024 * 1024;
 
         private class Connection : IDisposable
@@ -62,6 +69,12 @@ namespace Forwarder
                 Client,
                 Server
             }
+        }
+
+        private class Headers
+        {
+            public Dictionary<string, string> Header;
+            public byte[] Raw;
         }
 
         private Connection Source, Destination;
@@ -132,6 +145,9 @@ namespace Forwarder
                             Source.NS.ReadTimeout = Timeout;
                             Destination.NS.ReadTimeout = Timeout;
                         }
+
+                        var H = ReadHeaders(Source);
+
                         Source.Handle = Source.NS.BeginRead(Source.Data, 0, BUFFER, DataIn, Source);
                         Destination.Handle = Destination.NS.BeginRead(Destination.Data, 0, BUFFER, DataIn, Destination);
                     }
@@ -164,6 +180,12 @@ namespace Forwarder
                 Temp2.NS.Close();
                 Temp2.NS.Dispose();
             }
+            if (FS != null)
+            {
+                FS.Close();
+                FS.Dispose();
+                FS = null;
+            }
             ForwarderEvent?.Invoke(this, ForwarderEventType.UserClosed);
         }
 
@@ -173,6 +195,83 @@ namespace Forwarder
             {
                 Stop();
             }
+        }
+
+        private Headers ReadHeaders(Connection Source)
+        {
+            var H = new Headers();
+            H.Header = new Dictionary<string, string>();
+            using (MemoryStream MS = new MemoryStream())
+            {
+                while (MS.Length < 100000/*100 KB*/ && !IsDone(MS))
+                {
+                    int b=Source.NS.ReadByte();
+                    if (b < 0)
+                    {
+                        return null;
+                    }
+                    MS.WriteByte((byte)b);
+                }
+                MS.Seek(0, SeekOrigin.Begin);
+                H.Raw = MS.ToArray();
+                using (StreamReader S = new StreamReader(MS, Encoding.UTF8, false, 0, true))
+                {
+                    string Line = S.ReadLine();
+                    //last line is empty
+                    if (Line.Length > 0)
+                    {
+                        //first line is request type
+                        if (H.Header.Count == 0)
+                        {
+                            string[] Parts = Line.Split(' ');
+                            if (Parts.Length > 2)
+                            {
+                                H.Header["_METHOD"] = Parts[0].ToUpper();
+                                H.Header["_PATH"] = string.Join(" ", Parts, 1, Parts.Length - 2);
+                                H.Header["_PROTOCOL"] = Parts[Parts.Length - 1];
+                            }
+                            else
+                            {
+                                //Invalid first header
+                                return null;
+                            }
+                        }
+                        //HTTP header. We ignore those with _ at the start
+                        else if (Line.Contains(":") && !Line.StartsWith("_") && Line.IndexOf(':') < Line.Length - 2)
+                        {
+                            var Header = Line.Substring(0, Line.IndexOf(':'));
+                            var Value = Line.Substring(Line.IndexOf(':') + 2);
+                            if (H.Header.ContainsKey(Header))
+                            {
+                                H.Header[Header] += "; " + Value;
+                            }
+                            else
+                            {
+                                H.Header[Header] = Value;
+                            }
+                        }
+                    }
+                }
+            }
+            return H;
+        }
+
+        private bool IsDone(Stream S)
+        {
+            if (S.Length < 4)
+            {
+                return false;
+            }
+            long Pos = S.Position;
+            S.Seek(-4, SeekOrigin.End);
+            byte[] Data = new byte[4];
+            S.Read(Data, 0, Data.Length);
+            S.Seek(Pos, SeekOrigin.Begin);
+            return
+                Data[0] == 13 &&
+                Data[1] == 10 &&
+                Data[2] == 13 &&
+                Data[3] == 10; /*\r\n\r\n*/
         }
 
         private void DataIn(IAsyncResult ar)
@@ -196,6 +295,14 @@ namespace Forwarder
             }
             if (Readed > 0)
             {
+                if (Dump)
+                {
+                    if (FS == null)
+                    {
+                        FS = File.Create(string.Format(@"R:\dump_{0}.bin", DateTime.UtcNow.Ticks));
+                    }
+                    FS.Write(From.Data, 0, Readed);
+                }
                 From.BytesReceived += (ulong)Readed;
                 DataTransmitted?.Invoke(this, Readed);
                 /*Only enable if the connections behave weirdly. Causes massive performance issues.
