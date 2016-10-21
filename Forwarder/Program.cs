@@ -20,6 +20,8 @@ namespace Forwarder
             public bool Help;
         }
 
+        private const string DATE_FORMAT = "yyyy.MM.dd HH:mm:ss";
+
         /// <summary>
         /// The main entry point for the application.
         /// </summary>
@@ -28,16 +30,18 @@ namespace Forwarder
             ulong BytesTransmitted = 0;
             List<Forwarder> Connections = new List<Forwarder>();
 #if DEBUG
+            Log(null, "Starting Forwarder in DEBUG mode. Performance might be degraded.", MessageType.Debug);
             Args = new string[]
             {
                 "127.0.0.1:8080",
-                "127.0.0.1:5000",
-                "5000"
+                "40.118.4.74:80",
+                "0"
             };
 #endif
             var A = ParseArgs(Args);
             if (A.Help || !A.Valid)
             {
+                Log(null, "Printing Help", MessageType.Debug);
                 Console.Error.WriteLine(@"Forwarder <source> <destination> [timeout]
 Forwards TCP connections from source to destination.
 
@@ -50,28 +54,30 @@ timeout      - How long a connection can sit inactive until it is closed.
                Defaults to {0}, which indicates infinite.
                Time is in milliseconds.
 ", INFITITE);
+                Log(null, "Enumerating local IP addresses.", MessageType.Debug);
                 Console.Error.WriteLine("List of local addresses:\r\n{0}",
                     //Note. This cast is required to prevent CS0121
                     string.Join("\r\n", (IEnumerable<IPAddress>)Server.GetLocalAddresses())
                     );
-#if DEBUG
-                End();
-#endif
-                return 1;
+                return End(1);
             }
+            Log(null, string.Format("Creating Server for {0}", A.Listener), MessageType.Info);
             var Listener = new Server(A.Listener);
             Listener.Connection += delegate (object sender, Socket Connection)
             {
-                Console.Error.WriteLine("Got connection");
+                Log(null, "Got connection", MessageType.Debug);
                 Forwarder F = new Forwarder(Connection, A.Destination);
 #if DEBUG
+                Log(null, "Turnign on File dump", MessageType.Debug);
                 F.Dump = true;
 #endif
                 Connections.Add(F);
 
-                F.DataTransmitted += delegate (object source, int Count)
+                F.ForwarderMessage += Log;
+
+                F.DataTransmitted += delegate (object source, ulong Count)
                 {
-                    BytesTransmitted += (ulong)Count;
+                    BytesTransmitted += Count;
                 };
 
                 F.ForwarderEvent += delegate (object source, ForwarderEventType Action)
@@ -80,13 +86,13 @@ timeout      - How long a connection can sit inactive until it is closed.
                     switch (Action)
                     {
                         case ForwarderEventType.Established:
-                            Console.Error.WriteLine("Server connected.");
+                            Log(null, "Tunnel established", MessageType.Debug);
                             break;
                         case ForwarderEventType.ClientGone:
                         case ForwarderEventType.ServerGone:
                         case ForwarderEventType.ServerUnavailable:
                         case ForwarderEventType.UserClosed:
-                            Console.Error.WriteLine("Connection lost");
+                            Log(null, "Connection lost", MessageType.Debug);
                             Fwd.Dispose();
                             Connections.Remove(Fwd);
                             break;
@@ -97,34 +103,54 @@ timeout      - How long a connection can sit inactive until it is closed.
 
             (new Thread(delegate ()
             {
+                Log(null, "Starting Title updater", MessageType.Debug);
                 while (true)
                 {
-                    Console.Title = string.Format("TCP Forwarder | Transmitted: {0}", FormatSize(BytesTransmitted));
+                    Console.Title = string.Format("HTTP Forwarder | Transmitted: {0} | Clients: {1}", FormatSize(BytesTransmitted), Connections.Count);
                     Thread.Sleep(1000);
                 }
             })
             { IsBackground = true, Name = "Title updater" }).Start();
 
             Listener.Start();
-            Console.WriteLine("Forwarding from {0} to {1} | Press [ESC] to stop", A.Listener, A.Destination);
-            while (Console.ReadKey(true).Key != ConsoleKey.Escape) ;
+            Log(null, string.Format("Forwarding from {0} to {1} | Press [ESC] to stop", A.Listener, A.Destination), MessageType.Info);
+            while (Console.ReadKey(true).Key != ConsoleKey.Escape)
+            {
+                Console.Error.WriteLine("Use [ESC] to exit");
+            };
+            Log(null, "Exiting...", MessageType.Info);
             Listener.Stop();
-#if DEBUG
-            End();
-#endif
-            return 0;
+            return End(0);
         }
-#if DEBUG
-        private static void End()
+
+        private static void Log(object sender, string Message, MessageType Type)
         {
-            Console.WriteLine("#END");
+#if !DEBUG
+            if(Type==MessageType.Debug)
+            {
+                return;
+            }
+#endif
+            lock("Forwarder")
+            {
+                Console.ForegroundColor = (ConsoleColor)Type;
+                Console.WriteLine("[{0}] {1}", DateTime.Now.ToString(DATE_FORMAT), Message);
+                Console.ResetColor();
+            }
+        }
+
+        private static int End(int i)
+        {
+#if DEBUG
+            Log(null, "#END", MessageType.Debug);
             while (Console.KeyAvailable)
             {
                 Console.ReadKey(true);
             }
             Console.ReadKey(true);
-        }
+            return i;
 #endif
+        }
 
         /// <summary>
         /// Parses command line arguments
